@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import data from "./fakeDatabase.js";
+import data, { tempData } from "./fakeDatabase.js";
 import { validationResult } from "express-validator";
 
 export const handleInputErrors = (req, res, next) => {
@@ -16,7 +16,7 @@ export const handleInputErrors = (req, res, next) => {
 export const protectSignIn = (req, res, next) => {
   const { username } = req.body;
 
-  if (!data[username]) {
+  if (!data[username] && !tempData[username]) {
     next();
   } else {
     res.status(409);
@@ -25,23 +25,37 @@ export const protectSignIn = (req, res, next) => {
 };
 
 export const protectLogIn = (req, res, next) => {
-  const { username } = JSON.parse(req.params.userInfo);
+  const { username, email, password } = JSON.parse(req.params.userInfo);
 
-  if (data[username]) {
-    next();
+  if (username && data[username]) {
+    next({ username: username, password: password });
+  } else if (email) {
+    let userData;
+    for (let key in data) {
+      if (data[key].email === email) {
+        userData = data[key].username;
+        break;
+      }
+    }
+    next({ username: userData, password: password });
   } else {
     res.status(400);
-    res.json({ error: "Invalid Username" });
+    res.json({ error: "Invalid Username or Email Address" });
   }
 };
 
 export const protectForgotten = (req, res, next) => {
   const username = req.body.username;
-  if (data[username]) {
+  const email = req.body.email;
+
+  if (data[username] && data[username].email === email) {
     next();
-  } else {
+  } else if (!data[username]) {
     res.status(400);
     res.json({ error: "Invalid Username" });
+  } else {
+    res.status(400);
+    res.json({ error: "Invalid Email Address" });
   }
 };
 
@@ -68,6 +82,8 @@ export const protect = (req, res, next) => {
     next();
   } catch (e) {
     console.log(e);
+    res.status(401);
+    res.json({ error: "not-authorized" });
   }
 };
 

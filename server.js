@@ -13,15 +13,10 @@ import {
   forgottenPassword,
   getUserData,
   handleResetForgottenPass,
+  verifyNewUsers,
 } from "./handlers/handlers.js";
 import { body } from "express-validator";
 import router from "./routes/routes.js";
-
-// const corsAccess = {
-//   origin: "http://localhost:5173/",
-//   optionsSuccessStatus: 200,
-//   method: "GET, POST",
-// };
 
 const app = express();
 
@@ -50,22 +45,16 @@ app.post(
   protectSignIn,
   createNewUser
 );
+app.post("/verifyNewUser", body("emailId").isString(), verifyNewUsers);
 
 app.use("/update", protect, router);
-
-// app.put(
-//   "/update/",
-//   body("todos").isArray(),
-//   handleInputErrors,
-//   protect,
-//   updateUserList
-// );
 
 app.get("/getData/:userInfo", protectLogIn, getUserData);
 
 app.put(
   "/forgottenPass",
   body("username").isString(),
+  body("email").isString(),
   handleInputErrors,
   protectForgotten,
   forgottenPassword

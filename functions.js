@@ -1,9 +1,16 @@
-// import fetch from "node-fetch";
-
 export const uniqueId = (username) => {
   const use = username || "_api";
   let result = `${use}_`;
   for (let i = 0; i < 10; i++) {
+    const randomNo = Math.floor(Math.random() * 10);
+    result += randomNo;
+  }
+  return result;
+};
+export const verifyId = (username) => {
+  const use = username || "J-";
+  let result = `${use}`;
+  for (let i = 0; i < 5; i++) {
     const randomNo = Math.floor(Math.random() * 10);
     result += randomNo;
   }

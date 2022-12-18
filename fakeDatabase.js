@@ -18,11 +18,14 @@ var data = {
     id: uniqueId("nosaDrexx"),
     username: "nosaDrexx",
     password: await answer,
-    firstName: "Nosa",
-    lastName: "Egharevba",
+    profileImage: true,
+    firstname: "Nosa",
+    lastname: "Egharevba",
     email: "nosaegharevba01@gmail.com",
-    todos: [defaultData], // serving as fake database
+    todos: [{ ...defaultData, date: new Date().toUTCString() }], // serving as fake database
   },
 };
+
+export var tempData = {};
 
 export default data;
