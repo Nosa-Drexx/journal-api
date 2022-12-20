@@ -1,6 +1,6 @@
 import { randomPasswordGen, uniqueId, verifyId } from "../functions.js";
 import { comparePassword, createWebToken, hashPassword } from "../auth.js";
-import data, { defaultData, tempData } from "../fakeDatabase.js";
+import { defaultData } from "../fakeDatabase.js";
 import nodemailer from "nodemailer";
 import fs from "fs";
 import path from "path";
@@ -10,6 +10,10 @@ import * as url from "url";
 //const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 /* */
+import { MongoClient } from "mongodb";
+import { validationResult } from "express-validator";
+const mongoURL =
+  "mongodb+srv://nosa:Evan6901@cluster0.y0vi6mo.mongodb.net/?retryWrites=true&w=majority";
 
 export const createNewUser = async (req, res, next) => {
   try {
@@ -22,12 +26,30 @@ export const createNewUser = async (req, res, next) => {
       firstname,
       lastname,
       email,
-      emailId: await hashPassword(emailId),
+      emailId: emailId,
       profileImage: false,
       todos: [{ ...defaultData, date: new Date().toUTCString() }],
     };
 
-    tempData[newUserData] = newUserData;
+    var dbResult = {};
+
+    const client = await MongoClient.connect(mongoURL, {
+      useNewUrlParser: true,
+    }).catch((err) => {
+      dbResult.error = err;
+      throw err;
+    });
+
+    const db = await client.db("mydb");
+    const connection = await db.collection("notVerifiedPeople");
+    await connection.insertOne(newUserData);
+
+    if (dbResult?.error) {
+      var e = {};
+      e.type = "database";
+      next(e);
+    }
+    // tempData[newUserData] = newUserData;
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
@@ -40,7 +62,8 @@ export const createNewUser = async (req, res, next) => {
       from: process.env.EMAIL,
       to: email,
       subject: "Verify Email",
-      html: `<h2>Verify Your Email Address</h2>
+      html: `<h1 style="text-align: center">JourNal</h1>
+      <h2>Verify Your Email Address</h2>
      <h1 style="text-align: center">${emailId}</h1>
      <p>This token becomes invalid after use</p>`,
     };
@@ -61,63 +84,82 @@ export const createNewUser = async (req, res, next) => {
 };
 
 export async function verifyNewUsers(req, res) {
-  const reqEmailId = req.body.emailId;
-  var validatePassword = false;
-  var userData;
+  try {
+    const reqEmailId = req.body.emailId;
 
-  for (let key in tempData) {
-    const emailId = tempData[key].emailId;
+    let dbResult = {};
 
-    validatePassword = await comparePassword(reqEmailId, emailId);
-    if (validatePassword) {
-      userData = { ...tempData[key] };
-      delete tempData[key];
-      break;
+    const client = await MongoClient.connect(mongoURL, {
+      useNewUrlParser: true,
+    }).catch((err) => {
+      dbResult.error = err;
+      throw err;
+    });
+
+    const db = await client.db("mydb");
+    const connection = await db.collection("notVerifiedPeople");
+    dbResult.user = await connection.findOne({ emailId: reqEmailId });
+
+    if (dbResult.user) {
+      const connection2 = await db.collection("verifiedPeople");
+
+      await connection2.insertOne(dbResult.user);
+
+      await connection.deleteOne({ emailId: reqEmailId });
     }
-  }
 
-  if (!validatePassword) {
-    res.json({ error: "Invalid Email Token" });
-  } else {
-    data[userData.username] = userData; // add to db;
-    const { email } = userData;
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.EMAIL,
-        pass: process.env.EMAIL_PASSWORD,
-      },
-    });
-    const mailOptions = {
-      from: process.env.EMAIL,
-      to: email,
-      subject: "Verifed",
-      html: `<h2>You have been verifed</h2>
+    if (dbResult?.error) {
+      var e = {};
+      e.type = "database";
+      next(e);
+    }
+
+    if (!dbResult?.user?.username) {
+      res.json({ error: "Invalid Email Token" });
+    } else {
+      const { email } = dbResult.user;
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+          user: process.env.EMAIL,
+          pass: process.env.EMAIL_PASSWORD,
+        },
+      });
+      const mailOptions = {
+        from: process.env.EMAIL,
+        to: email,
+        subject: "Verifed",
+        html: `<h1 style="text-align: center">JourNal</h1>
+      <h2>You have been verifed</h2>
       <a href="http://${req.headers.origin}"> Click to Login</a>`,
-    };
-    await transporter.sendMail(mailOptions, function (error, info) {
-      if (error) {
-        console.log(error);
-        error.type = "invalid email";
-        next(error);
-      } else {
-        res.json({ message: `Verifed` });
-      }
-    });
+      };
+      await transporter.sendMail(mailOptions, function (error, info) {
+        if (error) {
+          console.log(error);
+          error.type = "invalid email";
+          next(error);
+        } else {
+          res.json({ message: `Verifed` });
+        }
+      });
+    }
+  } catch (e) {
+    console.log(e);
+    next(e);
   }
 }
 
 export const getUserData = async (loginDetails, req, res, next) => {
   try {
-    const { username, password } = loginDetails;
+    const { username, password, databaseInfo } = loginDetails;
 
     const validatePassword = await comparePassword(
       password,
-      data[username].password
+      databaseInfo.password
     );
 
     if (validatePassword) {
-      const user = data[username];
+      const user = databaseInfo;
       const token = createWebToken(user);
 
       res.json({
@@ -139,36 +181,130 @@ export const getUserData = async (loginDetails, req, res, next) => {
 };
 
 export const uploadImage = async (req, res, next) => {
-  if (req.file) {
-    data[req.user.username].profileImage = true;
-    const { username, firstname, lastname, todos, profileImage } =
-      data[req.user.username];
-    res.json({
-      message: "Image Updated",
-      userData: { username, firstname, lastname, todos, profileImage },
-    });
-  } else if (req.mimetype) {
-    res.status(400);
-    res.json({
-      error: "Only images with .png, .jpg and .jpeg format allowed!",
-    });
-  } else {
-    next();
+  try {
+    if (req.file) {
+      var dbResult = {};
+      const newvalues = { $set: { profileImage: true } };
+      const client = await MongoClient.connect(mongoURL, {
+        useNewUrlParser: true,
+      }).catch((err) => {
+        dbResult.error = err;
+        throw err;
+      });
+
+      const db = await client.db("mydb");
+      const connection = await db.collection("verifiedPeople");
+      await connection.updateOne({ username: req.user.username }, newvalues);
+
+      dbResult.user = await connection.findOne(
+        { username: req.user.username },
+        {
+          projection: {
+            username: 1,
+            firstname: 1,
+            lastname: 1,
+            todos: 1,
+            profileImage: 1,
+          },
+        }
+      );
+      if (dbResult.user) {
+        res.json({
+          message: "Image Updated",
+          userData: dbResult?.user,
+        });
+      }
+    } else if (req.mimetype) {
+      res.status(400);
+      res.json({
+        error: "Only images with .png, .jpg and .jpeg format allowed!",
+      });
+    } else {
+      next();
+    }
+  } catch (e) {
+    console.log(e);
+    next(e);
   }
 };
 
 export const getUserProfileImage = async (req, res, next) => {
-  let stream;
-  const newPath = path.join(__dirname, "..", "user-profile");
-  if (data[req.user.username].profileImage) {
-    const jpeg = fs.existsSync(`${path.join(newPath, req.user.username)}.jpeg`);
-    const png = fs.existsSync(`${path.join(newPath, req.user.username)}.png`);
-    const jpg = fs.existsSync(`${path.join(newPath, req.user.username)}.jpg`);
+  try {
+    let stream;
+    const newPath = path.join(__dirname, "..", "user-profile");
+    var dbResult = {};
+    const client = await MongoClient.connect(mongoURL, {
+      useNewUrlParser: true,
+    }).catch((err) => {
+      dbResult.error = err;
+      throw err;
+    });
 
-    if (!jpeg && !png && !jpg) {
-      data[req.user.username].profileImage = false;
-      // const { username, firstname, lastname, todos, profileImage } =
-      //   data[req.user.username];
+    const db = await client.db("mydb");
+    const connection = await db.collection("verifiedPeople");
+    dbResult.user = await connection.findOne(
+      { username: req.user.username },
+      {
+        projection: {
+          profileImage: 1,
+        },
+      }
+    );
+
+    if (dbResult?.error) {
+      var e = {};
+      e.type = "database";
+      next(e);
+    }
+    if (dbResult.user) {
+      const jpeg = fs.existsSync(
+        `${path.join(newPath, req.user.username)}.jpeg`
+      );
+      const png = fs.existsSync(`${path.join(newPath, req.user.username)}.png`);
+      const jpg = fs.existsSync(`${path.join(newPath, req.user.username)}.jpg`);
+
+      if (!jpeg && !png && !jpg) {
+        var dbResult = {};
+        const newvalues = { $set: { profileImage: false } };
+
+        dbResult.user = await connection.updateOne(
+          { username: req.user.username },
+          newvalues
+        );
+
+        stream = fs.createReadStream(
+          `${path.join(newPath, "api_blank_photo")}.png`
+        );
+        stream.on("open", () => {
+          stream.pipe(res);
+        });
+        stream.on("error", (e) => {
+          next(e);
+        });
+      }
+
+      if (jpeg) {
+        stream = fs.createReadStream(
+          `${path.join(newPath, req.user.username)}.jpeg`
+        );
+      }
+      if (png) {
+        stream = fs.createReadStream(
+          `${path.join(newPath, req.user.username)}.png`
+        );
+      }
+      if (jpg) {
+        stream = fs.createReadStream(
+          `${path.join(newPath, req.user.username)}.jpg`
+        );
+      }
+      stream.on("open", () => {
+        stream.pipe(res);
+      });
+      stream.on("error", (e) => {
+        next(e);
+      });
+    } else {
       stream = fs.createReadStream(
         `${path.join(newPath, "api_blank_photo")}.png`
       );
@@ -178,53 +314,45 @@ export const getUserProfileImage = async (req, res, next) => {
       stream.on("error", (e) => {
         next(e);
       });
-      // res.json({
-      //   error: "Couldn't find profile image",
-      //   userData: { username, firstname, lastname, todos, profileImage },
-      // });
     }
-
-    if (jpeg) {
-      stream = fs.createReadStream(
-        `${path.join(newPath, req.user.username)}.jpeg`
-      );
-    }
-    if (png) {
-      stream = fs.createReadStream(
-        `${path.join(newPath, req.user.username)}.png`
-      );
-    }
-    if (jpg) {
-      stream = fs.createReadStream(
-        `${path.join(newPath, req.user.username)}.jpg`
-      );
-    }
-    stream.on("open", () => {
-      stream.pipe(res);
-    });
-    stream.on("error", (e) => {
-      next(e);
-    });
-  } else {
-    console.log("hi");
-    stream = fs.createReadStream(
-      `${path.join(newPath, "api_blank_photo")}.png`
-    );
-    stream.on("open", () => {
-      stream.pipe(res);
-    });
-    stream.on("error", (e) => {
-      next(e);
-    });
+  } catch (e) {
+    console.log(e);
+    next(e);
   }
 };
 
-export const updateUserList = (req, res, next) => {
+export const updateUserList = async (req, res, next) => {
   try {
     const incomingData = req.user;
-    const user = data[incomingData.username];
-    user.todos = req.body.todos;
-    res.json({ todos: user.todos });
+    const newvalues = { $set: { todos: req.body.todos } };
+    var dbResult = {};
+    const client = await MongoClient.connect(mongoURL, {
+      useNewUrlParser: true,
+    }).catch((err) => {
+      dbResult.error = err;
+      throw err;
+    });
+
+    const db = await client.db("mydb");
+    const connection = await db.collection("verifiedPeople");
+    await connection.updateOne({ username: incomingData.username }, newvalues);
+
+    if (dbResult.error) {
+      e = {};
+      e.type = "database";
+      next(e);
+    }
+
+    if (!dbResult.error) {
+      dbResult.user = await connection.findOne(
+        {
+          username: incomingData.username,
+        },
+        { projection: { todos: 1 } }
+      );
+
+      res.json({ todos: dbResult.user.todos });
+    }
   } catch (e) {
     e.type = "unauthorized";
     console.log(e);
@@ -236,13 +364,50 @@ export const updateUserPassword = async (req, res, next) => {
   try {
     const incomingData = req.user;
     const oldPassword = req.body.oldpassword;
-    const user = data[incomingData.username];
-    const checkOldPassword = await comparePassword(oldPassword, user.password);
+
+    var dbResult = {};
+    //Get all User data
+    const client = await MongoClient.connect(mongoURL, {
+      useNewUrlParser: true,
+    }).catch((err) => {
+      dbResult.error = err;
+      throw err;
+    });
+    const db = await client.db("mydb");
+    const connection = await db.collection("verifiedPeople");
+    dbResult.user = await connection.findOne({
+      username: incomingData.username,
+    });
+
+    var checkOldPassword;
+    if (dbResult.user.password) {
+      checkOldPassword = await comparePassword(
+        oldPassword,
+        dbResult.user.password
+      );
+    } else {
+      var e = {};
+      e.type = "database";
+      next(e);
+    }
     if (checkOldPassword) {
       const newPassword = await hashPassword(req.body.password);
-      user.password = newPassword;
-      const token = createWebToken(user);
-      res.json({ message: "Password Updated", token });
+      const newvalues = { $set: { password: newPassword } };
+
+      //Update user password
+      await connection.updateOne(
+        { username: incomingData.username },
+        newvalues
+      );
+
+      if (dbResult.error) {
+        var e = {};
+        e.type = "database";
+        next(e);
+      } else {
+        const token = createWebToken(dbResult.user);
+        res.json({ message: "Password Updated", token });
+      }
     } else {
       res.status(400);
       res.json({ error: "invalid old password" });
@@ -256,9 +421,56 @@ export const updateUserPassword = async (req, res, next) => {
 
 export const deleteUser = async (req, res, next) => {
   try {
-    const requestingUser = req.user;
-    delete data[requestingUser.username];
-    res.json({ message: `${requestingUser.username} deleted` });
+    const incomingData = req.user;
+    var dbResult = {};
+    const newPath = path.join(__dirname, "..", "user-profile");
+    const client = await MongoClient.connect(mongoURL, {
+      useNewUrlParser: true,
+    }).catch((err) => {
+      dbResult.error = err;
+      throw err;
+    });
+
+    const db = await client.db("mydb");
+    const connection = await db.collection("verifiedPeople");
+    await connection.deleteOne({
+      username: incomingData.username,
+    });
+
+    if (dbResult.error) {
+      var e = {};
+      e.type = "database";
+      next(e);
+    }
+
+    const jpeg = fs.existsSync(`${path.join(newPath, req.user.username)}.jpeg`);
+    const png = fs.existsSync(`${path.join(newPath, req.user.username)}.png`);
+    const jpg = fs.existsSync(`${path.join(newPath, req.user.username)}.jpg`);
+    if (jpeg || png || jpg) {
+      if (jpeg) {
+        fs.unlink(`${path.join(newPath, req.user.username)}.jpeg`, (err) => {
+          if (err) {
+            cb(null, null);
+          }
+        });
+      }
+      if (png) {
+        fs.unlink(`${path.join(newPath, req.user.username)}.png`, (err) => {
+          if (err) {
+            cb(null, null);
+          }
+        });
+      }
+      if (jpg) {
+        fs.unlink(`${path.join(newPath, req.user.username)}.jpg`, (err) => {
+          if (err) {
+            cb(null, null);
+          }
+        });
+      }
+    }
+
+    res.json({ message: `${incomingData.username} deleted` });
   } catch (e) {
     console.log(e);
     next(e);
@@ -269,34 +481,93 @@ export const updateUsername = async (req, res, next) => {
   try {
     const newUsername = req.body.username;
     const incomingData = req.user;
-    const user = data[incomingData.username];
-    const { username, ...details } = user;
-    data[newUsername] = { username: newUsername, ...details };
-    delete data[username];
+    const newvalues = { $set: { username: newUsername } };
 
-    const token = createWebToken(data[newUsername]);
+    var dbResult = {};
 
-    res.json({
-      token,
-      username: newUsername,
-      message: `Username Updated ${newUsername}`,
+    const client = await MongoClient.connect(mongoURL, {
+      useNewUrlParser: true,
+    }).catch((err) => {
+      dbResult.error = err;
+      throw err;
     });
+
+    const db = await client.db("mydb");
+    const connection = await db.collection("verifiedPeople");
+    dbResult.user = await connection.findOne(
+      {
+        username: newUsername,
+      },
+      { projection: { username: 1, password: 1, id: 1 } }
+    );
+    if (!dbResult.user) {
+      await connection.updateOne(
+        { username: incomingData.username },
+        newvalues
+      );
+    } else {
+      var e = {};
+      e.type = "username";
+      next(e);
+    }
+
+    if (dbResult.error) {
+      var e = {};
+      e.type = "database";
+      next(e);
+    }
+
+    if (!dbResult.error) {
+      dbResult.user = await connection.findOne(
+        {
+          username: newUsername,
+        },
+        { projection: { username: 1, password: 1, id: 1 } }
+      );
+
+      const token = createWebToken(dbResult.user);
+
+      res.json({
+        token,
+        username: newUsername,
+        message: `Username Updated ${newUsername}`,
+      });
+    }
   } catch (e) {
     e.type = "unauthorized";
+
     console.log(e);
     next(e);
   }
 };
 
-export const forgottenPassword = async (req, res, next) => {
+export const forgottenPassword = async (userDetails, req, res, next) => {
   try {
     const newPassword = await randomPasswordGen();
     const incomingData = req.body;
-    const user = data[incomingData.username];
-    const oldPassword = user.password;
+    const oldPassword = userDetails.password;
     const hashNewPassword = await hashPassword(newPassword);
-    user.password = hashNewPassword;
-    // const token = createWebToken(user);
+
+    const newvalues = { $set: { password: hashNewPassword } };
+
+    var dbResult = {};
+
+    const client = await MongoClient.connect(mongoURL, {
+      useNewUrlParser: true,
+    }).catch((err) => {
+      dbResult.error = err;
+      throw err;
+    });
+
+    const db = await client.db("mydb");
+    const connection = await db.collection("verifiedPeople");
+    await connection.updateOne({ username: incomingData.username }, newvalues);
+
+    if (dbResult.error) {
+      var e = {};
+      e.type = "database";
+      next(e);
+    }
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
@@ -307,9 +578,10 @@ export const forgottenPassword = async (req, res, next) => {
     });
     const mailOptions = {
       from: process.env.EMAIL,
-      to: user.email,
+      to: incomingData.email,
       subject: "Password request",
-      html: `<h2>Request New Password</h2><h1 style="text-align: center;">${newPassword}</h1>
+      html: `<h1 style="text-align: center">JourNal</h1>
+      <h2>Request New Password</h2><h1 style="text-align: center;">${newPassword}</h1>
       <a href=${req.headers.origin}>click here to return to website</a><br />`,
     };
     await transporter.sendMail(mailOptions, function (error, info) {
@@ -318,7 +590,7 @@ export const forgottenPassword = async (req, res, next) => {
         error.type = "invalid email";
         next(error);
       } else {
-        res.json({ message: `Email sent: ${info.response}` });
+        res.json({ message: `Email sent` });
       }
     });
   } catch (e) {
@@ -327,25 +599,32 @@ export const forgottenPassword = async (req, res, next) => {
   }
 };
 
-export const updateEmail = (req, res, next) => {
+export const updateEmail = async (req, res, next) => {
   try {
     const newEmail = req.body.email;
     const incomingData = req.user;
-    const user = data[incomingData.username];
-    user.email = newEmail;
-    res.json({ message: `email updated ${newEmail}` });
-  } catch (e) {
-    console.log(e);
-    next(e);
-  }
-};
+    const newvalues = { $set: { email: newEmail } };
 
-export const handleResetForgottenPass = (req, res, next) => {
-  try {
-    const { username, password } = req.params.data;
-    const user = data[username];
-    user.password = password;
-    res.end();
+    var dbResult = {};
+
+    const client = await MongoClient.connect(mongoURL, {
+      useNewUrlParser: true,
+    }).catch((err) => {
+      dbResult.error = err;
+      throw err;
+    });
+
+    const db = await client.db("mydb");
+    const connection = await db.collection("verifiedPeople");
+    await connection.updateOne({ username: incomingData.username }, newvalues);
+
+    if (dbResult.error) {
+      var e = {};
+      e.type = "database";
+      next(e);
+    }
+
+    res.json({ message: `email updated ${newEmail}` });
   } catch (e) {
     console.log(e);
     next(e);

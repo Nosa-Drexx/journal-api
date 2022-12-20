@@ -95,7 +95,6 @@ router.put(
   "/username",
   body("username").isString(),
   handleInputErrors,
-  protectSignIn,
   updateUsername
 );
 
@@ -105,12 +104,21 @@ router.delete("/delete", handleInputErrors, deleteUser);
 
 router.use((err, req, res, next) => {
   console.log(err);
-  if (err.type === "unauthorized") {
+  if (err.code && err.code === "ETIMEOUT") {
+    res.status(504);
+    res.json({ error: "Connection TimeOut" });
+  } else if (err.type === "unauthorized") {
     res.status(401);
     res.json({ error: "unauthorized" });
+  } else if (err.type === "username") {
+    res.status(400);
+    res.json({ error: "Username already exist" });
+  } else if (err.type === "database") {
+    res.status(500);
+    res.json({ error: "Database error" });
   } else {
     res.status(500);
-    res.json({ error: "in router handler error" });
+    res.json({ error: "500! Server Error in router" });
   }
 });
 

@@ -1,61 +1,189 @@
 import jwt from "jsonwebtoken";
-import data, { tempData } from "./fakeDatabase.js";
+// import data, { tempData } from "./fakeDatabase.js";
 import { validationResult } from "express-validator";
+import { MongoClient } from "mongodb";
+import { comparePassword } from "./auth.js";
+
+const mongoURL =
+  "mongodb+srv://nosa:Evan6901@cluster0.y0vi6mo.mongodb.net/?retryWrites=true&w=majority";
 
 export const handleInputErrors = (req, res, next) => {
-  const errors = validationResult(req);
+  try {
+    const errors = validationResult(req);
 
-  if (!errors.isEmpty()) {
-    res.status(400);
-    res.json({ error: errors.array() });
-  } else {
-    next();
+    if (!errors.isEmpty()) {
+      res.status(400);
+      res.json({ error: errors.array() });
+    } else {
+      next();
+    }
+  } catch (e) {
+    console.log(e);
+    res.json({ error: "500! Server Error" });
   }
 };
 
-export const protectSignIn = (req, res, next) => {
-  const { username } = req.body;
+export const protectSignIn = async (req, res, next) => {
+  try {
+    const { username } = req.body;
 
-  if (!data[username] && !tempData[username]) {
-    next();
-  } else {
-    res.status(409);
-    res.json({ error: "Username already exist" });
+    let dbResult = {};
+
+    const client = await MongoClient.connect(mongoURL, {
+      useNewUrlParser: true,
+    }).catch((err) => {
+      throw err;
+    });
+    const db = await client.db("mydb");
+    const connection = await db.collection("notVerifiedPeople");
+    dbResult.user = await connection.findOne({ username: username });
+
+    if (!dbResult.user) {
+      const connection2 = await db.collection("verifiedPeople");
+      dbResult.user = await connection2.findOne({ username: username });
+    }
+
+    if (!dbResult.user) {
+      next();
+    } else if (dbResult.error) {
+      res.json({ error: "Database error" });
+    } else {
+      res.status(409);
+      res.json({ error: "Username already exist" });
+    }
+  } catch (e) {
+    console.log(e);
+    if (e.code && e.code === "ETIMEOUT") {
+      res.status(504);
+      res.json({ error: "Connection TimeOut" });
+    } else {
+      res.status(500);
+      res.json({ error: "500! Server Error" });
+    }
   }
 };
 
-export const protectLogIn = (req, res, next) => {
-  const { username, email, password } = JSON.parse(req.params.userInfo);
+export const protectLogIn = async (req, res, next) => {
+  try {
+    const { username, email, password } = JSON.parse(req.params.userInfo);
+    let dbResult = {};
 
-  if (username && data[username]) {
-    next({ username: username, password: password });
-  } else if (email) {
-    let userData;
-    for (let key in data) {
-      if (data[key].email === email) {
-        userData = data[key].username;
-        break;
+    const client = await MongoClient.connect(mongoURL, {
+      useNewUrlParser: true,
+    }).catch((err) => {
+      dbResult.error = err;
+      throw err;
+    });
+
+    const db = await client.db("mydb");
+    const connection = await db.collection("verifiedPeople");
+
+    if (username) {
+      dbResult.user = await connection.findOne(
+        { username: username },
+        {
+          projection: {
+            username: 1,
+            firstname: 1,
+            lastname: 1,
+            password: 1,
+            profileImage: 1,
+            todos: 1,
+          },
+        }
+      );
+    }
+
+    if (email) {
+      const allUsers = await connection
+        .find(
+          { email: email },
+          {
+            projection: {
+              username: 1,
+              firstname: 1,
+              lastname: 1,
+              password: 1,
+              profileImage: 1,
+              todos: 1,
+            },
+          }
+        )
+        .toArray();
+
+      for (let i = 0; i < allUsers.length; i++) {
+        const validatePassword = await comparePassword(
+          password,
+          allUsers[i].password
+        );
+        if (validatePassword) {
+          dbResult.user = allUsers[i];
+          break;
+        }
       }
     }
-    next({ username: userData, password: password });
-  } else {
-    res.status(400);
-    res.json({ error: "Invalid Username or Email Address" });
+
+    if (dbResult.user) {
+      next({
+        username: username,
+        password: password,
+        databaseInfo: dbResult.user,
+      });
+    } else {
+      res.status(400);
+      res.json({ error: "Invalid Username or Email Address" });
+    }
+  } catch (e) {
+    console.log(e);
+    if (e.code && e.code === "ETIMEOUT") {
+      res.status(504);
+      res.json({ error: "Connection TimeOut" });
+    } else {
+      res.status(500);
+      res.json({ error: "500! Server Error" });
+    }
   }
 };
 
-export const protectForgotten = (req, res, next) => {
-  const username = req.body.username;
-  const email = req.body.email;
+export const protectForgotten = async (req, res, next) => {
+  try {
+    const username = req.body.username;
+    const email = req.body.email;
 
-  if (data[username] && data[username].email === email) {
-    next();
-  } else if (!data[username]) {
-    res.status(400);
-    res.json({ error: "Invalid Username" });
-  } else {
-    res.status(400);
-    res.json({ error: "Invalid Email Address" });
+    var dbResult = {};
+    const client = await MongoClient.connect(mongoURL, {
+      useNewUrlParser: true,
+    }).catch((err) => {
+      dbResult.error = err;
+      throw err;
+    });
+
+    const db = await client.db("mydb");
+    const connection = await db.collection("verifiedPeople");
+    dbResult.user = await connection.findOne({ username: username });
+
+    if (dbResult?.error) {
+      res.json({ error: "Database error" });
+    }
+
+    if (dbResult.user && dbResult?.user?.email === email) {
+      next(dbResult?.user);
+    } else if (!dbResult?.user?.username) {
+      res.status(400);
+      res.json({ error: "Invalid Username" });
+    } else {
+      res.status(400);
+      res.json({ error: "Invalid Email Address" });
+    }
+  } catch (e) {
+    console.log(e);
+    if (e.code && e.code === "ETIMEOUT") {
+      res.status(504);
+      res.json({ error: "Connection TimeOut" });
+    } else {
+      res.status(500);
+      res.json({ error: "500! Server Error" });
+    }
   }
 };
 

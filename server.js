@@ -12,7 +12,6 @@ import {
   createNewUser,
   forgottenPassword,
   getUserData,
-  handleResetForgottenPass,
   verifyNewUsers,
 } from "./handlers/handlers.js";
 import { body } from "express-validator";
@@ -27,7 +26,7 @@ app.use(express.urlencoded({ extended: true }));
 
 app.get("/", (req, res, next) => {
   try {
-    res.json({ message: "Welcome to our server" });
+    res.json({ message: "Welcome to our server at JourNal" });
   } catch (e) {
     console.log(e);
     next(e);
@@ -61,7 +60,10 @@ app.put(
 );
 
 app.use((err, req, res, next) => {
-  if (err.type === "unauthorized") {
+  if (err.code && err.code === "ETIMEOUT") {
+    res.status(504);
+    res.json({ error: "Connection TimeOut" });
+  } else if (err.type === "unauthorized") {
     res.status(401);
     res.json({ error: "unauthorized" });
   } else if (err.type === "input") {
@@ -70,6 +72,9 @@ app.use((err, req, res, next) => {
   } else if ((err.type = "invalid email")) {
     res.status(400);
     res.json({ error: "Invalid Email Address" });
+  } else if (err.type === "database") {
+    res.status(500);
+    res.json({ error: "Database error" });
   } else {
     res.status(500);
     console.log(err);
