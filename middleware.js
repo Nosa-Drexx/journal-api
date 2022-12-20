@@ -1,11 +1,10 @@
 import jwt from "jsonwebtoken";
-// import data, { tempData } from "./fakeDatabase.js";
 import { validationResult } from "express-validator";
 import { MongoClient } from "mongodb";
-import { comparePassword } from "./auth.js";
+import * as dotenv from "dotenv";
+dotenv.config();
 
-const mongoURL =
-  "mongodb+srv://nosa:Evan6901@cluster0.y0vi6mo.mongodb.net/?retryWrites=true&w=majority";
+const mongoURL = process.env.DATABASE;
 
 export const handleInputErrors = (req, res, next) => {
   try {
@@ -25,7 +24,7 @@ export const handleInputErrors = (req, res, next) => {
 
 export const protectSignIn = async (req, res, next) => {
   try {
-    const { username } = req.body;
+    const { username, email } = req.body;
 
     let dbResult = {};
 
@@ -37,19 +36,21 @@ export const protectSignIn = async (req, res, next) => {
     const db = await client.db("mydb");
     const connection = await db.collection("notVerifiedPeople");
     dbResult.user = await connection.findOne({ username: username });
+    dbResult.email = await connection.findOne({ email: email });
 
-    if (!dbResult.user) {
+    if (!dbResult.user && !dbResult.email) {
       const connection2 = await db.collection("verifiedPeople");
       dbResult.user = await connection2.findOne({ username: username });
+      dbResult.email = await connection2.findOne({ email: email });
     }
 
-    if (!dbResult.user) {
+    if (!dbResult.user && !dbResult.email) {
       next();
     } else if (dbResult.error) {
       res.json({ error: "Database error" });
     } else {
       res.status(409);
-      res.json({ error: "Username already exist" });
+      res.json({ error: "Username or Email Address already exist" });
     }
   } catch (e) {
     console.log(e);
@@ -65,7 +66,7 @@ export const protectSignIn = async (req, res, next) => {
 
 export const protectLogIn = async (req, res, next) => {
   try {
-    const { username, email, password } = JSON.parse(req.params.userInfo);
+    const { username, password } = JSON.parse(req.params.userInfo);
     let dbResult = {};
 
     const client = await MongoClient.connect(mongoURL, {
@@ -78,9 +79,23 @@ export const protectLogIn = async (req, res, next) => {
     const db = await client.db("mydb");
     const connection = await db.collection("verifiedPeople");
 
-    if (username) {
+    dbResult.user = await connection.findOne(
+      { username: username },
+      {
+        projection: {
+          username: 1,
+          firstname: 1,
+          lastname: 1,
+          password: 1,
+          profileImage: 1,
+          todos: 1,
+        },
+      }
+    );
+
+    if (!dbResult.user) {
       dbResult.user = await connection.findOne(
-        { username: username },
+        { email: username },
         {
           projection: {
             username: 1,
@@ -92,35 +107,6 @@ export const protectLogIn = async (req, res, next) => {
           },
         }
       );
-    }
-
-    if (email) {
-      const allUsers = await connection
-        .find(
-          { email: email },
-          {
-            projection: {
-              username: 1,
-              firstname: 1,
-              lastname: 1,
-              password: 1,
-              profileImage: 1,
-              todos: 1,
-            },
-          }
-        )
-        .toArray();
-
-      for (let i = 0; i < allUsers.length; i++) {
-        const validatePassword = await comparePassword(
-          password,
-          allUsers[i].password
-        );
-        if (validatePassword) {
-          dbResult.user = allUsers[i];
-          break;
-        }
-      }
     }
 
     if (dbResult.user) {
@@ -161,6 +147,10 @@ export const protectForgotten = async (req, res, next) => {
     const db = await client.db("mydb");
     const connection = await db.collection("verifiedPeople");
     dbResult.user = await connection.findOne({ username: username });
+
+    if (!dbResult.user) {
+      dbResult.user = await connection.findOne({ email: username });
+    }
 
     if (dbResult?.error) {
       res.json({ error: "Database error" });

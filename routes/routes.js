@@ -9,7 +9,7 @@ import {
   updateUserPassword,
   uploadImage,
 } from "../handlers/handlers.js";
-import { handleInputErrors, protectSignIn } from "../middleware.js";
+import { handleInputErrors } from "../middleware.js";
 import path from "path";
 import multer from "multer";
 import fs from "fs";

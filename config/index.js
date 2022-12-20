@@ -23,6 +23,7 @@ export default merge(
       jwt: process.env.JWT_SECRET,
       email: process.env.EMAIL,
       email_password: process.env.EMAIL_PASSWORD,
+      database: process.env.DATABASE,
     },
   },
   envConfig

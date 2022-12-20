@@ -11,9 +11,10 @@ import * as url from "url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 /* */
 import { MongoClient } from "mongodb";
-import { validationResult } from "express-validator";
-const mongoURL =
-  "mongodb+srv://nosa:Evan6901@cluster0.y0vi6mo.mongodb.net/?retryWrites=true&w=majority";
+import * as dotenv from "dotenv";
+dotenv.config();
+
+const mongoURL = process.env.DATABASE;
 
 export const createNewUser = async (req, res, next) => {
   try {
@@ -561,7 +562,7 @@ export const forgottenPassword = async (userDetails, req, res, next) => {
 
     const db = await client.db("mydb");
     const connection = await db.collection("verifiedPeople");
-    await connection.updateOne({ username: incomingData.username }, newvalues);
+    await connection.updateOne({ username: userDetails.username }, newvalues);
 
     if (dbResult.error) {
       var e = {};
@@ -578,10 +579,10 @@ export const forgottenPassword = async (userDetails, req, res, next) => {
     });
     const mailOptions = {
       from: process.env.EMAIL,
-      to: incomingData.email,
+      to: userDetails.email,
       subject: "Password request",
       html: `<h1 style="text-align: center">JourNal</h1>
-      <h2>Request New Password</h2><h1 style="text-align: center;">${newPassword}</h1>
+      <h2>New Password</h2><h1 style="text-align: center;">${newPassword}</h1>
       <a href=${req.headers.origin}>click here to return to website</a><br />`,
     };
     await transporter.sendMail(mailOptions, function (error, info) {

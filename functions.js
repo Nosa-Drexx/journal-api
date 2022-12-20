@@ -30,7 +30,7 @@ function randomNumberBetween(first, second) {
 }
 
 export const randomPasswordGen = () => {
-  var use = "api-";
+  var use = "JOU-";
   for (let i = 0; i < 5; i++) {
     use += String.fromCharCode(randomNumberBetween(96, 123));
   }
