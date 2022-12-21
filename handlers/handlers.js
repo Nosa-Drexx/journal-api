@@ -504,6 +504,18 @@ export const deleteUser = async (req, res, next) => {
       }
     }
 
+    await userModel.findOneAndDelete(
+      { username: req.user.username },
+      function (error, docs) {
+        if (error) {
+          error.type = "database";
+          throw error;
+        } else {
+          console.log(`${req.user.username} image deleted`);
+        }
+      }
+    );
+
     res.json({ message: `${incomingData.username} deleted` });
   } catch (e) {
     console.log(e);
