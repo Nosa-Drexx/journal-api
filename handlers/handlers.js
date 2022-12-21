@@ -11,10 +11,22 @@ import * as url from "url";
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 /* */
 import { MongoClient } from "mongodb";
+import mongoose from "mongoose";
 import * as dotenv from "dotenv";
 dotenv.config();
 
 const mongoURL = process.env.DATABASE;
+
+mongoose.set("strictQuery", false);
+
+mongoose.connect(mongoURL, { useNewUrlParser: true, useUnifiedTopology: true });
+
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true },
+  profileImage: { data: Buffer, contentType: String },
+});
+
+const userModel = mongoose.model("userProfileImages", userSchema);
 
 export const createNewUser = async (req, res, next) => {
   try {
@@ -185,7 +197,50 @@ export const uploadImage = async (req, res, next) => {
   try {
     if (req.file) {
       var dbResult = {};
+      const newPath = path.join(__dirname, "..", "user-profile");
       const newvalues = { $set: { profileImage: true } };
+
+      await userModel
+        .find({ username: req.user.username })
+        .then((doc) => {
+          dbResult.profileImage = doc[0];
+        })
+        .catch((error) => {
+          error.type = "database";
+          throw error;
+        });
+
+      if (dbResult.profileImage) {
+        dbResult.profileImage = await userModel.findOneAndUpdate(
+          { username: req.user.username },
+          {
+            profileImage: {
+              data: fs.readFileSync(path.join(newPath, req.file.filename)),
+              contentType: "image/png",
+            },
+          },
+          {
+            new: true,
+          }
+        );
+        console.log("ProfileImage updated succesfully");
+      } else {
+        var uploadImage = new userModel({
+          username: req.user.username,
+          profileImage: {
+            data: fs.readFileSync(path.join(newPath, req.file.filename)),
+            contentType: "image/png",
+          },
+        });
+        await uploadImage.save((error, doc) => {
+          if (!error) {
+            console.log("Profile Images Uploaded Sucessfully");
+          } else {
+            console.log(error);
+          }
+        });
+      }
+
       const client = await MongoClient.connect(mongoURL, {
         useNewUrlParser: true,
       }).catch((err) => {
@@ -232,7 +287,6 @@ export const uploadImage = async (req, res, next) => {
 export const getUserProfileImage = async (req, res, next) => {
   try {
     let stream;
-    const newPath = path.join(__dirname, "..", "user-profile");
     var dbResult = {};
     const client = await MongoClient.connect(mongoURL, {
       useNewUrlParser: true,
@@ -247,6 +301,7 @@ export const getUserProfileImage = async (req, res, next) => {
       { username: req.user.username },
       {
         projection: {
+          username: 1,
           profileImage: 1,
         },
       }
@@ -258,13 +313,17 @@ export const getUserProfileImage = async (req, res, next) => {
       next(e);
     }
     if (dbResult.user) {
-      const jpeg = fs.existsSync(
-        `${path.join(newPath, req.user.username)}.jpeg`
-      );
-      const png = fs.existsSync(`${path.join(newPath, req.user.username)}.png`);
-      const jpg = fs.existsSync(`${path.join(newPath, req.user.username)}.jpg`);
+      await userModel
+        .find({ username: dbResult.user.username })
+        .then((doc) => {
+          dbResult.profileImage = doc[0];
+        })
+        .catch((error) => {
+          error.type = "database";
+          throw error;
+        });
 
-      if (!jpeg && !png && !jpg) {
+      if (!dbResult.profileImage) {
         var dbResult = {};
         const newvalues = { $set: { profileImage: false } };
 
@@ -282,39 +341,13 @@ export const getUserProfileImage = async (req, res, next) => {
         stream.on("error", (e) => {
           next(e);
         });
+      } else {
+        res.end(dbResult.profileImage.profileImage.data);
       }
-
-      if (jpeg) {
-        stream = fs.createReadStream(
-          `${path.join(newPath, req.user.username)}.jpeg`
-        );
-      }
-      if (png) {
-        stream = fs.createReadStream(
-          `${path.join(newPath, req.user.username)}.png`
-        );
-      }
-      if (jpg) {
-        stream = fs.createReadStream(
-          `${path.join(newPath, req.user.username)}.jpg`
-        );
-      }
-      stream.on("open", () => {
-        stream.pipe(res);
-      });
-      stream.on("error", (e) => {
-        next(e);
-      });
     } else {
-      stream = fs.createReadStream(
-        `${path.join(newPath, "api_blank_photo")}.png`
-      );
-      stream.on("open", () => {
-        stream.pipe(res);
-      });
-      stream.on("error", (e) => {
-        next(e);
-      });
+      var e = {};
+      e.type = "unauthorized";
+      throw e;
     }
   } catch (e) {
     console.log(e);

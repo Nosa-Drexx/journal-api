@@ -26,6 +26,7 @@ app.use(express.urlencoded({ extended: true }));
 
 app.get("/", (req, res, next) => {
   try {
+    res.status(200);
     res.json({ message: "Welcome to our server at JourNal" });
   } catch (e) {
     console.log(e);
