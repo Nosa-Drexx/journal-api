@@ -288,6 +288,7 @@ export const getUserProfileImage = async (req, res, next) => {
   try {
     let stream;
     var dbResult = {};
+    const newPath = path.join(__dirname, "..", "user-profile");
     const client = await MongoClient.connect(mongoURL, {
       useNewUrlParser: true,
     }).catch((err) => {
@@ -504,7 +505,7 @@ export const deleteUser = async (req, res, next) => {
       }
     }
 
-    await userModel.findOneAndDelete(
+    userModel.findOneAndDelete(
       { username: req.user.username },
       function (error, docs) {
         if (error) {
