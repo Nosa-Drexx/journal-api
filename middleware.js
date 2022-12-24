@@ -80,7 +80,7 @@ export const protectLogIn = async (req, res, next) => {
     const connection = await db.collection("verifiedPeople");
 
     dbResult.user = await connection.findOne(
-      { username: username },
+      { $or: [{ username: username }, { email: username }] },
       {
         projection: {
           username: 1,
@@ -92,22 +92,6 @@ export const protectLogIn = async (req, res, next) => {
         },
       }
     );
-
-    if (!dbResult.user) {
-      dbResult.user = await connection.findOne(
-        { email: username },
-        {
-          projection: {
-            username: 1,
-            firstname: 1,
-            lastname: 1,
-            password: 1,
-            profileImage: 1,
-            todos: 1,
-          },
-        }
-      );
-    }
 
     if (dbResult.user) {
       next({
