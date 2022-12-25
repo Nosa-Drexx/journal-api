@@ -35,16 +35,18 @@ export const protectSignIn = async (req, res, next) => {
     });
     const db = await client.db("mydb");
     const connection = await db.collection("notVerifiedPeople");
-    dbResult.user = await connection.findOne({ username: username });
-    dbResult.email = await connection.findOne({ email: email });
+    dbResult.user = await connection.findOne({
+      $or: [{ username: username }, { email: email }],
+    });
 
-    if (!dbResult.user && !dbResult.email) {
+    if (!dbResult.user) {
       const connection2 = await db.collection("verifiedPeople");
-      dbResult.user = await connection2.findOne({ username: username });
-      dbResult.email = await connection2.findOne({ email: email });
+      dbResult.user = await connection2.findOne({
+        $or: [{ username: username }, { email: email }],
+      });
     }
 
-    if (!dbResult.user && !dbResult.email) {
+    if (!dbResult.user) {
       next();
     } else if (dbResult.error) {
       res.json({ error: "Database error" });
